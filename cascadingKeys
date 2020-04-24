@@ -1,0 +1,56 @@
+##As taken from https://alestic.com/2010/10/ec2-ssh-keys/ and modified to fit env.
+
+
+#You can use your default personal ssh key with brand new EC2 instances, so you no longer have to remember to specify options like -i EC2KEYPAIR in every ssh, scp, rsync command.
+
+#If you haven’t yet created an ssh key for your local system, it can be done with the command:
+
+openssl genpkey -algorithm RSA -aes-256-cbc -outform PEM -out private_key.pem -pkeyopt rsa_keygen_bits:2048
+
+
+
+You can accept the default file locations, and I recommend using a secure passphrase to keep the key safe.
+
+Here are some sample commands that will upload to all existing regions your personal ssh public key from the 
+default file location on Ubuntu, giving it an EC2 keypair name of your current username. Adjust to suit your preferences:
+
+keypair=$USER  # or some name that is meaningful to you
+publickeyfile=$HOME/.ssh/id_rsa.pub
+regions=$(aws ec2 describe-regions \
+  --output text \
+  --query 'Regions[*].RegionName')
+
+for region in $regions; do
+  echo $region
+  aws ec2 import-key-pair \
+    --region "$region" \
+    --key-name "$keypair" \
+    --public-key-material "file://$publickeyfile"
+done
+
+
+
+When you start new instances, you can now specify this new keypair name and EC2 will provide the previously uploaded public 
+ssh key to the instance, allowing you to ssh in. For example:
+
+instance_id=$(aws ec2 run-instances --key $USER --image-id ami-f57b8f9e \
+  --instance-type t2.micro --output text --query 'Instances[*].InstanceId')
+
+aws ec2 wait instance-running --instance-ids "$instance_id"
+
+host=$(aws ec2 describe-instances --instance-ids $instance_id \
+  --output text --query 'Reservations[*].Instances[*].PublicIpAddress')
+
+ssh ubuntu@$host   # Look Ma! No key!
+Don’t forget to terminate the instance if you started one to test this.
+
+aws ec2 terminate-instances --instance-ids $instance_id
+[Update]
+
+
+
+Based on a Twitter question, I tested uploading a DSA public ssh key (instead of RSA) and got this error from Amazon:
+
+Client.InvalidKeyPair.Format: Invalid DER encoded key material
+
+I don’t see why DSA would not work since it’s just a blurb of text being stored by EC2 and passed to the instance to add to $HOME/.ssh/authorized_keys but there you have it.
